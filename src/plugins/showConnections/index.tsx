@@ -88,10 +88,7 @@ function ConnectionsComponent({ id, theme }: { id: string, theme: string; }) {
         return null;
 
     return (
-        <Flex style={{
-            gap: getSpacingPx(settings.store.iconSpacing),
-            flexWrap: "wrap"
-        }}>
+        <Flex gap={getSpacingPx(settings.store.iconSpacing)} flexWrap="wrap">
             {connections.map(connection => <CompactConnectionComponent connection={connection} theme={theme} key={connection.id} />)}
         </Flex>
     );
@@ -163,10 +160,10 @@ export default definePlugin({
 
     patches: [
         {
-            find: ".hasAvatarForGuild(null==",
+            find: /\.POPOUT,onClose:\i}\),nicknameIcons:.+?\.isProvisional/,
             replacement: {
-                match: /currentUser:\i,guild:\i[^}]*?\}\)(?=])(?<=user:(\i),bio:null==(\i)\?.+?)/,
-                replace: "$&,$self.profilePopoutComponent({ user: $1, displayProfile: $2 })"
+                match: /userId:\i\.id,guild:\i\}\)(?=])/,
+                replace: "$&,$self.profilePopoutComponent(arguments[0])"
             }
         }
     ],

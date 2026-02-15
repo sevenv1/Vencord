@@ -5,21 +5,22 @@
  */
 
 import { definePluginSettings } from "@api/Settings";
-import { classNameFactory } from "@api/Styles";
+import { disableStyle, enableStyle } from "@api/Styles";
 import { buildPluginMenuEntries, buildThemeMenuEntries } from "@plugins/vencordToolbox/menu";
 import { Devs } from "@utils/constants";
-import { getIntlMessage } from "@utils/discord";
+import { classNameFactory } from "@utils/css";
 import { Logger } from "@utils/Logger";
 import definePlugin, { OptionType } from "@utils/types";
-import { waitFor } from "@webpack";
+import { findCssClassesLazy } from "@webpack";
 import { ComponentDispatch, FocusLock, Menu, useEffect, useRef } from "@webpack/common";
 import type { HTMLAttributes, ReactElement } from "react";
+
+import fullHeightStyle from "./fullHeightContext.css?managed";
 
 type SettingsEntry = { section: string, label: string; };
 
 const cl = classNameFactory("");
-let Classes: Record<string, string>;
-waitFor(["animating", "baseLayer", "bg", "layer", "layers"], m => Classes = m);
+const Classes = findCssClassesLazy("animating", "baseLayer", "bg", "layer", "layers");
 
 const settings = definePluginSettings({
     disableFade: {
@@ -41,6 +42,11 @@ const settings = definePluginSettings({
         restartNeeded: true
     }
 });
+
+interface TransformedSettingsEntry {
+    section: string;
+    items: SettingsEntry[];
+}
 
 interface LayerProps extends HTMLAttributes<HTMLDivElement> {
     mode: "SHOWN" | "HIDDEN";
@@ -81,13 +87,22 @@ export default definePlugin({
     authors: [Devs.Kyuuhachi],
     settings,
 
+    start() {
+        if (settings.store.organizeMenu)
+            enableStyle(fullHeightStyle);
+    },
+
+    stop() {
+        disableStyle(fullHeightStyle);
+    },
+
     patches: [
         {
             find: "this.renderArtisanalHack()",
             replacement: [
-                { // Fade in on layer
-                    match: /(?<=\((\i),"contextType",\i\.\i\);)/,
-                    replace: "$1=$self.Layer;",
+                {
+                    match: /class (\i)(?= extends \i\.PureComponent.+?static contextType=.+?jsx\)\(\1,\{mode:)/,
+                    replace: "var $1=$self.Layer;class VencordPatchedOldFadeLayer",
                     predicate: () => settings.store.disableFade
                 },
                 { // Lazy-load contents
@@ -114,8 +129,8 @@ export default definePlugin({
         { // Load menu TOC eagerly
             find: "#{intl::USER_SETTINGS_WITH_BUILD_OVERRIDE}",
             replacement: {
-                match: /(\i)\(this,"handleOpenSettingsContextMenu",.{0,100}?null!=\i&&.{0,100}?(await [^};]*?\)\)).*?,(?=\1\(this)/,
-                replace: "$&(async ()=>$2)(),"
+                match: /(?=handleOpenSettingsContextMenu=.{0,100}?null!=\i&&.{0,100}?(await [^};]*?\)\)))/,
+                replace: "_vencordBetterSettingsEagerLoad=(async ()=>$1)();"
             },
             predicate: () => settings.store.eagerLoad
         },
@@ -124,8 +139,8 @@ export default definePlugin({
             find: "#{intl::USER_SETTINGS_ACTIONS_MENU_LABEL}",
             replacement: [
                 {
-                    match: /=\[\];if\((\i)(?=\.forEach)/,
-                    replace: "=$self.wrapMap([]);if($self.transformSettingsEntries($1)",
+                    match: /=\[\];(\i)(?=\.forEach.{0,200}?"logout"===\i.{0,100}?(\i)\.get\(\i\))/,
+                    replace: "=$self.wrapMap([]);$self.transformSettingsEntries($1,$2)",
                     predicate: () => settings.store.organizeMenu
                 },
                 {
@@ -145,7 +160,7 @@ export default definePlugin({
     // Thus, we sanity check webpack modules
     Layer(props: LayerProps) {
         try {
-            [FocusLock.$$vencordGetWrappedComponent(), ComponentDispatch, Classes].forEach(e => e.test);
+            [FocusLock.$$vencordGetWrappedComponent(), ComponentDispatch, Classes.layer].forEach(e => e.test);
         } catch {
             new Logger("BetterSettings").error("Failed to find some components");
             return props.children;
@@ -154,36 +169,34 @@ export default definePlugin({
         return <Layer {...props} />;
     },
 
-    transformSettingsEntries(list: SettingsEntry[]) {
-        const items = [{ label: null as string | null, items: [] as SettingsEntry[] }];
+    transformSettingsEntries(list: SettingsEntry[], keyMap: Map<string, string>) {
+        const items = [] as TransformedSettingsEntry[];
 
         for (const item of list) {
             if (item.section === "HEADER") {
-                items.push({ label: item.label, items: [] });
-            } else if (item.section === "DIVIDER") {
-                items.push({ label: getIntlMessage("OTHER_OPTIONS"), items: [] });
-            } else {
-                items.at(-1)!.items.push(item);
+                keyMap.set(item.label, item.label);
+                items.push({ section: item.label, items: [] });
+            } else if (item.section !== "DIVIDER" && keyMap.has(item.section)) {
+                items.at(-1)?.items.push(item);
             }
         }
 
         return items;
     },
 
-    wrapMap(toWrap: any[]) {
-        const otherOptions = getIntlMessage("OTHER_OPTIONS");
+    wrapMap(toWrap: TransformedSettingsEntry[]) {
         // @ts-expect-error
         toWrap.map = function (render: (item: SettingsEntry) => ReactElement<any>) {
             return this
-                .filter(a => a.items.length > 0 && a.label !== otherOptions)
-                .map(({ label, items }) => {
+                .filter(a => a.items.length > 0)
+                .map(({ section, items }) => {
                     const children = items.map(render);
-                    if (label) {
+                    if (section) {
                         return (
                             <Menu.MenuItem
-                                key={label}
-                                id={label.replace(/\W/, "_")}
-                                label={label}
+                                key={section}
+                                id={section.replace(/\W/, "_")}
+                                label={section}
                             >
                                 {children}
                             </Menu.MenuItem>

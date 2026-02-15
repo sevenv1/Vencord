@@ -13,7 +13,7 @@ import { openChangeDecorationModal } from "@plugins/decor/ui/modals/ChangeDecora
 import { findComponentByCodeLazy } from "@webpack";
 import { useEffect } from "@webpack/common";
 
-const CustomizationSection = findComponentByCodeLazy(".customizationSectionBackground");
+const CustomizationSection = findComponentByCodeLazy(".DESCRIPTION", "hasBackground:");
 
 export interface DecorSectionProps {
     hideTitle?: boolean;
@@ -35,7 +35,7 @@ export default function DecorSection({ hideTitle = false, hideDivider = false, n
         hideDivider={hideDivider}
         className={noMargin && cl("section-remove-margin")}
     >
-        <Flex style={{ gap: "4px " }}>
+        <Flex gap="4px">
             <Button
                 onClick={() => {
                     if (!authorization.isAuthorized()) {
